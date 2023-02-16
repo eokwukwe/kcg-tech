@@ -1,14 +1,20 @@
-import { useState } from "react";
+import { type Session } from "@acme/auth";
 import type { NextPage } from "next";
-import Head from "next/head";
 import { signIn, signOut } from "next-auth/react";
+import Head from "next/head";
+import { useState } from "react";
 
 import { api, type RouterOutputs } from "~/utils/api";
 
 const PostCard: React.FC<{
   post: RouterOutputs["post"]["all"][number];
   onPostDelete?: () => void;
-}> = ({ post, onPostDelete }) => {
+  onPostLike?: () => void;
+  session: Session | undefined | null;
+}> = ({ post, session, onPostLike, onPostDelete }) => {
+  const liked =
+    post.likes.findIndex((like) => like.userId === session?.user.id) !== -1;
+
   return (
     <div className="flex flex-row rounded-lg bg-white/10 p-4 transition-all hover:scale-[101%]">
       <div className="flex-grow">
@@ -16,12 +22,30 @@ const PostCard: React.FC<{
         <p className="mt-2 text-sm">{post.content}</p>
       </div>
       <div>
-        <span
-          className="cursor-pointer text-sm font-bold uppercase text-pink-400"
-          onClick={onPostDelete}
-        >
-          Delete
-        </span>
+        {
+          <>
+            <button
+              type="button"
+              className={`mr-4 flex items-center justify-center rounded px-1.5 py-1 text-xs font-bold disabled:cursor-not-allowed disabled:bg-opacity-70 ${
+                liked
+                  ? "bg-red-400 bg-opacity-95 text-red-900"
+                  : "bg-green-400 bg-opacity-95 text-green-900 "
+              }`}
+              onClick={onPostLike}
+              disabled={!session || liked}
+            >
+              {liked ? "Liked" : "Like"} ({post._count.likes})
+            </button>
+
+            <button
+              type="button"
+              className="text-sm font-bold uppercase text-pink-400"
+              onClick={onPostDelete}
+            >
+              Delete
+            </button>
+          </>
+        }
       </div>
     </div>
   );
@@ -50,7 +74,7 @@ const CreatePostForm: React.FC = () => {
         placeholder="Title"
       />
       {error?.data?.zodError?.fieldErrors.title && (
-        <span className="text-red-500 mb-2">
+        <span className="mb-2 text-red-500">
           {error.data.zodError.fieldErrors.title}
         </span>
       )}
@@ -61,7 +85,7 @@ const CreatePostForm: React.FC = () => {
         placeholder="Content"
       />
       {error?.data?.zodError?.fieldErrors.content && (
-        <span className="text-red-500 mb-2">
+        <span className="mb-2 text-red-500">
           {error.data.zodError.fieldErrors.content}
         </span>
       )}
@@ -81,9 +105,14 @@ const CreatePostForm: React.FC = () => {
 };
 
 const Home: NextPage = () => {
+  const { data: session } = api.auth.getSession.useQuery();
   const postQuery = api.post.all.useQuery();
 
   const deletePostMutation = api.post.delete.useMutation({
+    onSettled: () => postQuery.refetch(),
+  });
+
+  const likePostMutation = api.post.like.useMutation({
     onSettled: () => postQuery.refetch(),
   });
 
@@ -116,6 +145,8 @@ const Home: NextPage = () => {
                           key={p.id}
                           post={p}
                           onPostDelete={() => deletePostMutation.mutate(p.id)}
+                          onPostLike={() => likePostMutation.mutate(p.id)}
+                          session={session}
                         />
                       );
                     })}
@@ -136,18 +167,25 @@ export default Home;
 
 const AuthShowcase: React.FC = () => {
   const { data: session } = api.auth.getSession.useQuery();
+  const postsCount = api.post.count.useQuery();
 
-  const { data: secretMessage } = api.auth.getSecretMessage.useQuery(
-    undefined, // no input
-    { enabled: !!session?.user },
-  );
+  // const { data: secretMessage } = api.auth.getSecretMessage.useQuery(
+  //   undefined, // no input
+  //   { enabled: !!session?.user },
+  // );
 
   return (
     <div className="flex flex-col items-center justify-center gap-4">
       {session?.user && (
         <p className="text-center text-2xl text-white">
-          {session && <span>Logged in as {session?.user?.name}</span>}
-          {secretMessage && <span> - {secretMessage}</span>}
+          {session && (
+            <span>
+              Logged in as{" "}
+              <span className="font-semibold uppercase text-pink-400">
+                {session?.user?.name}
+              </span>
+            </span>
+          )}
         </p>
       )}
       <button
@@ -156,6 +194,11 @@ const AuthShowcase: React.FC = () => {
       >
         {session ? "Sign out" : "Sign in"}
       </button>
+
+      <div>
+        Total posts:{" "}
+        {!session ? <span>N/A</span> : <span>{postsCount.data}</span>}
+      </div>
     </div>
   );
 };
